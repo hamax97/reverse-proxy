@@ -5,7 +5,8 @@
 void obtain_available_addresses(struct addrinfo *&result);
 
 /* Create a socket and bind it to an available address in result */
-void socket_and_bind(int &server_socket_fd, struct addrinfo *result);
+void socket_and_bind(int &server_socket_fd, struct addrinfo *result,
+		     int &web_server_fd1, int &web_server_fd2);
 
 /* Function that initializes the signal handling */
 void signal_handling();
@@ -14,9 +15,20 @@ void signal_handling();
 void signal_handler(int signal);
 
 /* Funtion to receive a message in client_socket_fd */
-void receive_request(int client_socket_fd, char* message, char* client_ip_address);
+void receive_request(int client_socket_fd, char* message, size_t& bytes_read,
+		     char* client_ip_address);
 
+/* Function that sends a request to a web server and waits for the response */
+void
+process_request(int web_server_fd, char* request, size_t request_size,
+		char* response, size_t response_size, bool& close_connection,
+		int target_server, int client_socket_fd);
 
+/* Create connection to the web servers */
+void connect_to_web_servers(int web_server_fd1, int web_server_fd2);
+
+/* Function to reconnect to one of the web servers */
+void reconnect(int web_server_fd, int port);
 
 int
 main(int argc, char* argv[]){
@@ -33,8 +45,7 @@ main(int argc, char* argv[]){
   // This server socket file descriptor
   
   int server_socket_fd, web_server_fd1, web_server_fd2;
-  socket_and_bind(server_socket_fd, result, web_server_fd1,
-		  web_server_fd2);
+  socket_and_bind(server_socket_fd, result, web_server_fd1, web_server_fd2);
   
   // END socket() and bind() -------------
 
@@ -46,7 +57,7 @@ main(int argc, char* argv[]){
     perror("listen()");
     exit(1);
   }
-  printf("Socket listening!\n");
+  printf("Socket listening on port %s!\n", SERVER_PORT);
 
   // END listen() ------------------
 
@@ -56,15 +67,22 @@ main(int argc, char* argv[]){
   
   // END SIGNAL Handling -------------------
 
-  // connect() -----------------------------
-  // open connection to web servers
-
-  connect_to_web_servers(web_server_fd1, web_server_fd2);
-  
-  // END connect() -------------------------
+  int target_server = 1; // indicates the target web server
   
   // accept() and recv() -------------
   while(1){
+
+    // check web servers connection status
+    switch(CONNECTION_STATUS){
+    case 1: // connection to web server 1 is down
+      reconnect(web_server_fd1, WEB_SERVER_PORT1);
+      break;
+    case 2: // connection to web server 2 is down
+      reconnect(web_server_fd2, WEB_SERVER_PORT2);
+      break;
+    default:
+      ; // everything is ok
+    }
 
     printf("Waiting for connections...\n");
     
@@ -102,30 +120,58 @@ main(int argc, char* argv[]){
     
     else if( child_pid == 0){ // child
 
-      printf("I AM THE CHILD\n");
-    
-      // recv(): Receiving message from client ------
+      while(true){ // This infinite while loop is to keep alive the connection
+	// recv(): Receiving message from client ------
 
-      char request[MAX_MESSAGE_SIZE];
-      receive_request(client_socket_fd, request, address);
+	char request[MAX_MESSAGE_SIZE];
+	size_t request_size; // the request size will be stored here
+	receive_request(client_socket_fd, request, request_size, address);
 
-      // END recv() --------------------------------
+	// END recv() --------------------------------
 
-      // Process request -----------------------
+	// Process request -----------------------
 
+	char response[MAX_MESSAGE_SIZE];
+	size_t response_size;
+	bool close_connection = false;
+      
+	if(target_server == 1){
+	  process_request(web_server_fd1, request, request_size,
+			  response, response_size, close_connection, target_server, client_socket_fd);
+	}else{
+	  process_request(web_server_fd2, request, request_size,
+			  response, response_size, close_connection, target_server, client_socket_fd);
+	}
+      
+	// END Process request -----------------------
 
-      
-      
-      printf("Request:\n%s\n", request);
-      
-      // END Process request -----------------------
-      
-      close(client_socket_fd);
-      printf("CHILD: Connection from %s closed!\n", address);
-      exit(0);
-      
+	// Send response to client -------------------
+
+	//if( CONNECTION_STATUS != 0 ){ //something went wrong
+
+	//char internal_server_error[] =
+	//  {"Internal server error 500"};
+	  
+	//}else{ // Everything is ok
+	  
+	  //}
+	
+	// END Send response to client -------------------------
+
+	if(close_connection){
+	  close(client_socket_fd);
+	  printf("CHILD: Connection from %s closed!\n", address);
+	  exit(0);
+	}
+      }
     }
     // parent
+
+    // Switch the target server
+    if(target_server == 1)
+      target_server = 2;
+    else
+      target_server = 1;
     
     // END fork() --------------------------------
 
@@ -142,32 +188,108 @@ main(int argc, char* argv[]){
 /* ---------- MAIN FUNCTIONS ---------- */
 
 void
-connect_to_web_servers(){
-  struct sockaddr_in web_server_address1, web_server_address2;
-  // Internet address
-  web_server_address1.sin_family = AF_INET;
-  web_server_address2.sin_family = AF_INET;
-  // Port
-  web_server_address1.sin_port = htons(CLIENT_PORT1);
-  web_server_address2.sin_port = htons(CLIENT_PORT2);
-  // IP address
-  web_server_address1.sin_addr.s_addr =
-    
+process_request(int web_server_fd, char* request, size_t request_size,
+		char* response, size_t response_size, bool& close_connection,
+		int target_server, int client_socket_fd){
+
+
+  // THIS WAY OF READING THE REQUEST GENERATES PROBLEMS, because of the \r
+  // Process request
+  std::istringstream req(request);
+  std::string line;
+  std::string final_request;
+
+  std::getline(req, line);
+  printf("First line %s\n", line.c_str());
+  final_request.append(line); //Request type
+
+  std::getline(req, line);
   
-}
+  if(target_server == 1)
+    final_request.append("Host: 127.0.0.1:6001\r\n");
+  else
+    final_request.append("Host: 127.0.0.1:6002\r\n");
 
-void
-process_request(char* request){
-  // Connect to the IP and port
-  //   1. using the struct sockaddr_in
-  //   2. Using connect
+  
+  while(std::getline(req, line)){
+    final_request.append(line);
+  }
 
-  int 
+  final_request.append("\r\n");
 
-  struct sockaddr_in 
+  // Connect first
+
+  struct sockaddr_in webserver_addr;
+  
+  webserver_addr.sin_family = AF_INET;
+  if(target_server == 1){
+    webserver_addr.sin_port = htons(WEB_SERVER_PORT1);
+  }else{
+    webserver_addr.sin_port = htons(WEB_SERVER_PORT2);
+  }
+  char address[] = {"127.0.0.1"};
+  inet_pton(AF_INET, address, &webserver_addr.sin_addr.s_addr);
+  
+  if( connect(web_server_fd, (struct sockaddr *) &webserver_addr, sizeof(webserver_addr)) != 0){
+    perror("connect()");
+  }
   
   // Send the request
+
+    char final_request1[] = {"GET / HTTP/1.1\r\nHost:127.0.0.1:6001\r\nUser-Agent: Mozilla/5.0\r\n\r\n"};
+  
+    char final_request2[] = {"GET / HTTP/1.1\r\nHost:127.0.0.1:6002\r\nUser-Agent: Mozilla/5.0\r\n\r\n"};
+  
+  //if( send(web_server_fd, final_request.c_str(), request_size, 0) == -1 ){
+  if(target_server == 1){
+    if( send(web_server_fd, final_request1, sizeof(final_request2), 0) == -1 ){
+      perror("send()");
+      
+      if( errno == ECONNRESET )
+	CONNECTION_STATUS = target_server;
+      
+      close_connection = true;
+      return;
+    }
+  }else{
+    if( send(web_server_fd, final_request2, sizeof(final_request2), 0) == -1 ){
+      perror("send()");
+      
+      if( errno == ECONNRESET )
+	CONNECTION_STATUS = target_server;
+      
+      close_connection = true;
+      return;
+    }    
+  }
+  printf("CHILD:\n  - Sending request to server %d.\n  - Request:\n%s\n",
+	 target_server, final_request2);
+  
   // Wait for the response
+  response_size = recv(web_server_fd, response, MAX_MESSAGE_SIZE-1, MSG_WAITALL);
+
+  printf("CHILD:\nresponse: \n%s\n", response);
+
+  if(response_size == 0){ // one of the web servers closed the connection
+
+    CONNECTION_STATUS = target_server;
+    
+  }else if(response_size == -1){
+
+    perror("send()");
+    
+    if( errno == ECONNRESET )
+      CONNECTION_STATUS = target_server;
+    
+    close_connection = true;
+    return;
+    
+  }
+
+  send(client_socket_fd, response, response_size, 0);
+
+  // Process request and response and look for the connection header
+  close_connection = true;
 }
 
 void
@@ -177,6 +299,8 @@ obtain_available_addresses(struct addrinfo *&result){
   // hints used by getaddrinfo
   struct addrinfo hints;
 
+  // Listening socket
+  
   memset( &hints, 0, sizeof(hints) ); // make sure that hints is empty
   /* AI_PASSIVE: address for a socket that will be bind()ed, that will listen
      on all interfaces (INADDR_ANY, IN6ADDR_ANY_INIT), NOTE: this only if parameter
@@ -190,13 +314,13 @@ obtain_available_addresses(struct addrinfo *&result){
     fprintf(stderr, "getaddrinfo() error: %s", gai_strerror(gai_status));
     exit(1);
   }
-  
 }
 
 void
 socket_and_bind(int &server_socket_fd, struct addrinfo *result,
 		int &web_server_fd1, int &web_server_fd2){
 
+  // Listening socket
   // Try each address until bind() returns success
   struct addrinfo *it;
   for(it = result; it != NULL; it = it -> ai_next){
@@ -276,12 +400,12 @@ signal_handler(int signal){
 }
 
 void
-receive_request(int client_socket_fd, char* message, char* client_ip_address){
-  int bytes_read;
+receive_request(int client_socket_fd, char* message, size_t& bytes_read,
+		char* client_ip_address){
 
   // MAX_MESSAGE_SIZE - 1: avoids writing to the null byte character
   // MSG_WAITALL: Waits untill all the data is received
-  if( (bytes_read = recv(client_socket_fd, message, MAX_MESSAGE_SIZE - 1, MSG_WAITALL)) == -1 ){
+  if( (bytes_read = recv(client_socket_fd, message, MAX_MESSAGE_SIZE - 1, 0)) == -1 ){
 	  
     perror("recv()");
     close(client_socket_fd);
@@ -300,6 +424,20 @@ receive_request(int client_socket_fd, char* message, char* client_ip_address){
   // Message completely received
   printf("CHILD: Message from %s completely received\n", client_ip_address);
   
+}
+
+void
+reconnect(int web_server_fd, int port){
+  struct sockaddr_in webserver_addr;
+
+  webserver_addr.sin_family = AF_INET;
+  webserver_addr.sin_port = htons(port);
+  char address[] = {"127.0.0.1"};
+  inet_pton(AF_INET, address, &webserver_addr.sin_addr.s_addr);
+
+  if( connect(web_server_fd, (struct sockaddr *) &webserver_addr, sizeof(webserver_addr)) != 0){
+    perror("connect()");
+  }
 }
 
 /* ---------- END MAIN FUNCTIONS ---------- */

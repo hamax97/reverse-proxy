@@ -1,9 +1,9 @@
 all:
 	rm -rf ./bin
 	mkdir ./bin
-	g++ -c src/tcp_server.cpp
-	g++ -ggdb -o bin/server tcp_server.o
-	rm tcp_server.o
+	g++ -c src/proxy.cpp
+	g++ -ggdb -o bin/server proxy.o
+	rm proxy.o
 
 clean:
 	rm -rf *~

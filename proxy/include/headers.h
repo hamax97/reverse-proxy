@@ -3,8 +3,8 @@
 
 /* Libraries needed */
 
-#include <fstream> // ifstream
-#include <exception>
+#include <string>
+#include <sstream>
 #include <stdio.h> // printf() fprintf()
 #include <stdlib.h> // strtol()
 
@@ -24,9 +24,9 @@
 /* -------- MACROS -------- */
 
 // Ports under 1024 are reserved, and you can use them only if you are ROOT
-#define SERVER_PORT "6000" //used in getaddrinfo()
-#define CLIENT_PORT1 6001 //used in htons()
-#define CLIENT_PORT2 6002
+#define SERVER_PORT "8000" //used in getaddrinfo()
+#define WEB_SERVER_PORT1 6001 //used in htons()
+#define WEB_SERVER_PORT2 6002
 
 // Maximum waiting queue
 #define BACKLOG 10
@@ -34,6 +34,12 @@
 // Check /proc/sys/net/core/rmem_default for buffer values for recv()
 // Check /proc/sys/net/core/wmem_default for buffer values for send()
 #define MAX_MESSAGE_SIZE 5000
+
+// Web servers connection status variable
+//  0: Everything is OK
+//  1: Connection to web server 1 is down
+//  2: Connection to web server 2 is down
+int CONNECTION_STATUS = 0;
 
 /* -------- END MACROS -------- */
 
