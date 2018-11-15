@@ -257,6 +257,8 @@ process_request(int web_server_fd, char* request, size_t request_size,
       
       if( errno == ECONNRESET )
 	CONNECTION_STATUS = target_server;
+
+      close(web_server_fd);
       
       close_connection = true;
       return;
