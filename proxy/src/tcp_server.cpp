@@ -14,17 +14,12 @@ void signal_handling();
 void signal_handler(int signal);
 
 /* Funtion to receive a message in client_socket_fd */
-void receive_message(int client_socket_fd, char* message, char* client_ip_address);
+void receive_request(int client_socket_fd, char* message, char* client_ip_address);
 
 
 
 int
 main(int argc, char* argv[]){
-
-  if(argc != 2){
-    printf("Usage: Wrong number of arguments.\nExpected: $ %s <dbinfofile>", argv[0]);
-    exit(1);
-  }
   
   // getaddrinfo() ----------------
 
@@ -37,8 +32,9 @@ main(int argc, char* argv[]){
 
   // This server socket file descriptor
   
-  int server_socket_fd;
-  socket_and_bind(server_socket_fd, result);
+  int server_socket_fd, web_server_fd1, web_server_fd2;
+  socket_and_bind(server_socket_fd, result, web_server_fd1,
+		  web_server_fd2);
   
   // END socket() and bind() -------------
 
@@ -59,6 +55,13 @@ main(int argc, char* argv[]){
   signal_handling();
   
   // END SIGNAL Handling -------------------
+
+  // connect() -----------------------------
+  // open connection to web servers
+
+  connect_to_web_servers(web_server_fd1, web_server_fd2);
+  
+  // END connect() -------------------------
   
   // accept() and recv() -------------
   while(1){
@@ -98,14 +101,25 @@ main(int argc, char* argv[]){
       perror("fork()");
     
     else if( child_pid == 0){ // child
+
+      printf("I AM THE CHILD\n");
     
       // recv(): Receiving message from client ------
 
-      char message[MAX_MESSAGE_SIZE];
-      receive_message(client_socket_fd, message, address);
+      char request[MAX_MESSAGE_SIZE];
+      receive_request(client_socket_fd, request, address);
 
       // END recv() --------------------------------
 
+      // Process request -----------------------
+
+
+      
+      
+      printf("Request:\n%s\n", request);
+      
+      // END Process request -----------------------
+      
       close(client_socket_fd);
       printf("CHILD: Connection from %s closed!\n", address);
       exit(0);
@@ -119,11 +133,42 @@ main(int argc, char* argv[]){
   // END accept() and recv() -------------
   
   close(server_socket_fd);
+  close(web_server_fd1);
+  close(web_server_fd2);
 
   return 0;
 }
 
 /* ---------- MAIN FUNCTIONS ---------- */
+
+void
+connect_to_web_servers(){
+  struct sockaddr_in web_server_address1, web_server_address2;
+  // Internet address
+  web_server_address1.sin_family = AF_INET;
+  web_server_address2.sin_family = AF_INET;
+  // Port
+  web_server_address1.sin_port = htons(CLIENT_PORT1);
+  web_server_address2.sin_port = htons(CLIENT_PORT2);
+  // IP address
+  web_server_address1.sin_addr.s_addr =
+    
+  
+}
+
+void
+process_request(char* request){
+  // Connect to the IP and port
+  //   1. using the struct sockaddr_in
+  //   2. Using connect
+
+  int 
+
+  struct sockaddr_in 
+  
+  // Send the request
+  // Wait for the response
+}
 
 void
 obtain_available_addresses(struct addrinfo *&result){
@@ -139,10 +184,9 @@ obtain_available_addresses(struct addrinfo *&result){
   hints.ai_flags = AI_PASSIVE;
   hints.ai_family = AF_UNSPEC; // ipv4 or ipv6
   hints.ai_socktype = SOCK_STREAM; // tcp
-  hints.ai_protocol = 6; // 6: TCP protocol (/etc/protocols)
 
   // result (linked list) where the addresses will be saved
-  if( (gai_status = getaddrinfo(NULL, PORT, &hints, &result)) != 0 ){
+  if( (gai_status = getaddrinfo(NULL, SERVER_PORT, &hints, &result)) != 0 ){
     fprintf(stderr, "getaddrinfo() error: %s", gai_strerror(gai_status));
     exit(1);
   }
@@ -150,7 +194,8 @@ obtain_available_addresses(struct addrinfo *&result){
 }
 
 void
-socket_and_bind(int &server_socket_fd, struct addrinfo *result){
+socket_and_bind(int &server_socket_fd, struct addrinfo *result,
+		int &web_server_fd1, int &web_server_fd2){
 
   // Try each address until bind() returns success
   struct addrinfo *it;
@@ -188,7 +233,11 @@ socket_and_bind(int &server_socket_fd, struct addrinfo *result){
   if(it == NULL){
     fprintf(stderr, "Could not bind()\n");
     exit(1);
-  }  
+  }
+
+  // Open sockets that will connect to the web servers
+  web_server_fd1 = socket(AF_INET, SOCK_STREAM, 0);
+  web_server_fd2 = socket(AF_INET, SOCK_STREAM, 0);
 }
 
 void signal_handling(){
@@ -227,7 +276,7 @@ signal_handler(int signal){
 }
 
 void
-receive_message(int client_socket_fd, char* message, char* client_ip_address){
+receive_request(int client_socket_fd, char* message, char* client_ip_address){
   int bytes_read;
 
   // MAX_MESSAGE_SIZE - 1: avoids writing to the null byte character

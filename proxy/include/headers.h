@@ -24,7 +24,9 @@
 /* -------- MACROS -------- */
 
 // Ports under 1024 are reserved, and you can use them only if you are ROOT
-#define PORT "17777"
+#define SERVER_PORT "6000" //used in getaddrinfo()
+#define CLIENT_PORT1 6001 //used in htons()
+#define CLIENT_PORT2 6002
 
 // Maximum waiting queue
 #define BACKLOG 10
@@ -39,9 +41,6 @@
 
 /* Returns a pointer to the sin_addr structure containing the ip */
 void *get_internet_address(struct sockaddr *sa);
-
-/* Stores in 'number' the number in the message's JSON header */
-void get_number_in_header(const char* message, int *number_of_chars);
 
 /* -------- END FUNCTION DECALARATION ------- */
 
